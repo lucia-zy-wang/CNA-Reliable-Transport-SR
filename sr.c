@@ -127,6 +127,11 @@ void A_input(struct pkt packet)
   /* VARIABLE to wrap current pkt position into the sender window */
   int diff = (ack - base_seq + SEQSPACE) % SEQSPACE;
 
+  /* TEST CODE */
+  if (TRACE == 1)
+    printf("----A_input: windowfirst=%d, base_seq=%d, ack=%d, diff=%d, windowcount=%d, acked[%d]=%d\n",
+    windowfirst, base_seq, ack, diff, windowcount, ack, acked[ack]);
+
   /* if received ACK is not corrupted */
   if (!IsCorrupted(packet)) {
     if (TRACE > 0)
@@ -138,7 +143,10 @@ void A_input(struct pkt packet)
        current pkt is within the sender window, AND
        its acked status is 0 */
     if(diff < windowcount && !acked[packet.acknum]) {
-      
+      /* TEST CODE */
+      if (TRACE == 1)
+        printf("----A_input: ACK %d accepted as new ACK (within window)\n", ack);
+    
       /* Set pkt acked status to acked (1) */
       acked[packet.acknum] = 1;   /* mark this seqnum as ACKed */
       
@@ -148,6 +156,10 @@ void A_input(struct pkt packet)
       new_ACKs++;
 
     } else {
+      /* TEST CODE */
+      if (TRACE == 1)
+        printf("A_input: ACK %d ignored as duplicate or outside window\n", ack);
+      /* Original TRACE output*/
       if (TRACE > 0)
         printf ("----A: duplicate ACK received, do nothing!\n");
     }
@@ -173,6 +185,7 @@ void A_input(struct pkt packet)
     if (windowcount == 0 && timer_running) {
       stoptimer(A); /* Only stop timer if it's already running */
       timer_running = 0;
+      /* TEST CODE */
       if (TRACE == 1)
         printf("----A: No packets to track, timer stopped.\n");
     }
@@ -182,13 +195,15 @@ void A_input(struct pkt packet)
     else if (windowcount > 0 && windowfirst != old_windowfirst) {
       if (timer_running) stoptimer(A);  /*avoid stacking timers*/ 
       starttimer(A, RTT);
-      timer_running = 1;}
+      timer_running = 1;
 
-      /* Track which packet timer's tracking*/
+      /* TEST CODE Track which packet timer's tracking*/
       if (TRACE == 1)
         printf("----A: Timer restarted for packet %d\n", buffer[windowfirst].seqnum);
+    }
+
   } else { 
-    /* Else if ACK is corrupted, ignore it and do ntohing to the winow or timer */
+    /* Else if ACK is corrupted, ignore it and do nothing to the window or timer */
       if (TRACE > 0)
         printf ("----A: corrupted ACK is received, do nothing!\n");
     }
@@ -254,12 +269,17 @@ void B_input(struct pkt packet)
       printf("----B: packet %d is correctly received, send ACK!\n",packet.seqnum);
     packets_received++;
 
+    /* TEST CODE */
+    if (TRACE == 1)
+      printf("----B_input: expecting seq=%d, received=%d\n", expectedseqnum, packet.seqnum);
+
     /* if packet is within the receiver window and never received, buffer it */
     if (((seq - expectedseqnum + SEQSPACE) % SEQSPACE) < WINDOWSIZE && !received[seq]) {
       /* put pkt in the receiver buffer window */
       recv_buffer[seq] = packet;
       /* set received status as received (1) */
       received[seq] = 1;
+      /* TEST CODE */
       if (TRACE == 1)
         printf("----B: packet %d buffered\n", seq);
     }
@@ -276,6 +296,7 @@ void B_input(struct pkt packet)
     
     /* send out ACK packet */
     tolayer3 (B, sendpkt);
+    /* TEST CODE */
     if (TRACE == 1)
       printf("----B: ACK %d sent\n", seq);
 
@@ -288,7 +309,7 @@ void B_input(struct pkt packet)
       tolayer5(B, recv_buffer[expectedseqnum].payload);
       received[expectedseqnum] = 0; /* Reset corresponding position to unreceived */
       
-      /* Test TRACE */
+      /* TEST CODE */
       if (TRACE == 1)
         printf("----B: packet %d delivered to layer5\n", expectedseqnum);
       
@@ -301,6 +322,7 @@ void B_input(struct pkt packet)
     /* packet is corrupted, do nothing */
     if (TRACE > 0)
       printf("----B: packet corrupted or not expected sequence number, resend ACK!\n");
+    /* TEST CODE */
     if (TRACE == 1)
       printf("----B: corrupted packet received, do nothing!\n");
   }
