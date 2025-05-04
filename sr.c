@@ -129,12 +129,15 @@ void A_input(struct pkt packet)
 
     /* Only first arrival of this ACK matters; duplicate ACK ignored */
     if(!acked[packet.acknum]) {
+
       /* Set pkt acked status to acked (1) */
       acked[packet.acknum] = 1;   /* mark this seqnum as ACKed */
+      
       if (TRACE > 0)
-      /* printf("----A: pkt %d Status is set to ACKed\n",packet.acknum);*/
       printf("----A: ACK %d is not a duplicate\n",packet.acknum);
+
       new_ACKs++;
+
     } else {
       if (TRACE > 0)
          printf ("----A: duplicate ACK received, do nothing!\n");
@@ -150,17 +153,25 @@ void A_input(struct pkt packet)
       windowcount --;
     }
 
-    /* start timer again if there are still more unacked packets in window */
-    if (timer_running) {
+    /* ----- start timer again if there are still more unacked packets in window ----- */
+    /* if there's no pkt waiting to be acked AND timer is running. Stop the timer. */
+    if (windowcount == 0 && timer_running) {
       stoptimer(A); /* Only stop timer if it's already running */
       timer_running = 0;
+      if (TRACE > 0)
+        printf("----A: No packets to track, timer stopped.\n");
     }
     /* Start a new timer only if:  
       (a) there are still unACKed packets, AND  
-      (b) base actually moved (i.e., we now time a new oldest pkt) */
-    if (windowcount > 0 && windowfirst != old_windowfirst) {
+      (b) base actually moved (i.e., we now time a new oldest unacked pkt) */
+    else if (windowcount > 0 && windowfirst != old_windowfirst) {
+      if (timer_running) stoptimer(A);  /*avoid stacking timers*/ 
       starttimer(A, RTT);
       timer_running = 1;}
+
+      /* Track which packet timer's tracking*/
+      if (TRACE > 0)
+        printf("----A: Timer restarted for packet %d\n", buffer[windowfirst].seqnum);
   } else { 
     /* Else if ACK is corrupted, ignore it and do ntohing to the winow or timer */
       if (TRACE > 0)
@@ -272,10 +283,12 @@ void B_input(struct pkt packet)
     /* packet is corrupted or out of order resend last ACK */
     if (TRACE > 0)
       printf("----B: packet corrupted or not expected sequence number, resend ACK!\n");
-    if (expectedseqnum == 0)
-      sendpkt.acknum = SEQSPACE - 1;
-    else
-      sendpkt.acknum = expectedseqnum - 1;
+    sendpkt.acknum = (expectedseqnum == 0) ? (SEQSPACE - 1) : (expectedseqnum - 1);
+    sendpkt.seqnum = B_nextseqnum;
+    B_nextseqnum = (B_nextseqnum + 1) % 2;
+    for (i = 0; i < 20; i++) sendpkt.payload[i] = '0';
+    sendpkt.checksum = ComputeChecksum(sendpkt);
+    tolayer3(B, sendpkt);
   }
 }
 
