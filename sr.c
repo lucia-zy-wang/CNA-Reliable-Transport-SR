@@ -120,6 +120,12 @@ void A_input(struct pkt packet)
 {
   /* remember current base so we can detect later if window moved */
   int old_windowfirst = windowfirst;
+  /* VARIABLE of window base sequence */
+  int base_seq = buffer[windowfirst].seqnum;
+  /* VARIABLE of current packet position */
+  int ack = packet.acknum;
+  /* VARIABLE to wrap current pkt position into the sender window */
+  int diff = (ack - base_seq + SEQSPACE) % SEQSPACE;
 
   /* if received ACK is not corrupted */
   if (!IsCorrupted(packet)) {
@@ -128,8 +134,11 @@ void A_input(struct pkt packet)
     total_ACKs_received++;
 
     /* Only first arrival of this ACK matters; duplicate ACK ignored */
-    if(!acked[packet.acknum]) {
-
+    /* The ACK isn't duplicate only when
+       current pkt is within the sender window, AND
+       its acked status is 0 */
+    if(diff < windowcount && !acked[packet.acknum]) {
+      
       /* Set pkt acked status to acked (1) */
       acked[packet.acknum] = 1;   /* mark this seqnum as ACKed */
       
@@ -192,7 +201,7 @@ void A_timerinterrupt(void)
   if (TRACE > 0)
     printf("----A: time out,resend packets!\n");
   
-  /* Retransmit the packet at the head of the send window */
+  /* Retransmit the packet at the head of the sender window */
   /* buffer[windowfirst] is the oldest unacknowledged frame */
   if (TRACE > 0)
     printf ("---A: resending packet %d\n", (buffer[windowfirst]).seqnum);
@@ -237,8 +246,9 @@ void B_input(struct pkt packet)
   struct pkt sendpkt;
   int i;
   int seq = packet.seqnum;
+  
 
-  /* if not corrupted and received packet is in order */
+  /* if not corrupted and received packet */
   if  (!IsCorrupted(packet))  {
     if (TRACE > 0)
       printf("----B: packet %d is correctly received, send ACK!\n",packet.seqnum);
@@ -246,29 +256,31 @@ void B_input(struct pkt packet)
 
     /* if packet is within the receiver window and never received, buffer it */
     if (((seq - expectedseqnum + SEQSPACE) % SEQSPACE) < WINDOWSIZE && !received[seq]) {
+      /* put pkt in the receiver buffer window */
       recv_buffer[seq] = packet;
+      /* set received status as received (1) */
       received[seq] = 1;
       if (TRACE == 1)
         printf("----B: packet %d buffered\n", seq);
     }
     
     /* --------------- Send an ACK for the received packet --------------- */
-    /* create packet */
+    /* create ACK packet */
     sendpkt.acknum = seq;
     sendpkt.seqnum = B_nextseqnum;
     B_nextseqnum = (B_nextseqnum + 1) % 2;
     for (i=0; i<20; i++)
       sendpkt.payload[i] = '0';
-    /* computer checksum */
+    /* compute checksum */
     sendpkt.checksum = ComputeChecksum(sendpkt);
     
-    /* send out packet */
+    /* send out ACK packet */
     tolayer3 (B, sendpkt);
     if (TRACE == 1)
       printf("----B: ACK %d sent\n", seq);
 
     /* -------------------------------------------------------------------- */
-    /* Deliver buffered packet to Application Layer,
+    /* Deliver buffered packet in-order to Application Layer,
        starting from expectedseqnum */
     while (received[expectedseqnum]) {
       
