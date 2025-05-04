@@ -61,7 +61,8 @@ static struct pkt buffer[WINDOWSIZE];  /* array for storing packets waiting for 
 static int windowfirst, windowlast;    /* array indexes of the first/last packet awaiting ACK */
 static int windowcount;                /* the number of packets currently awaiting an ACK */
 static int A_nextseqnum;               /* the next sequence number to be used by the sender */
-static int acked[WINDOWSIZE];          /* array for storing packets ACKed status (0 unacked /1 acked)*/
+static int acked[SEQSPACE];            /* array for storing packets ACKed status (0 unacked /1 acked) */
+static int timer_running;              /* Added variable to track the status of timer */
 
 /* called from layer 5 (application layer), passed the message to be sent to other side */
 void A_output(struct msg message)
@@ -87,7 +88,7 @@ void A_output(struct msg message)
     buffer[windowlast] = sendpkt;
     windowcount++;
     /* set current pkt sent as unacked*/
-    acked[windowlast] = 0;
+    acked[A_nextseqnum] = 0;
 
     /* send out packet */
     if (TRACE > 0)
@@ -95,8 +96,10 @@ void A_output(struct msg message)
     tolayer3 (A, sendpkt);
 
     /* start timer if first packet in window */
-    if (windowcount == 1)
+    if (windowcount == 1) {
       starttimer(A,RTT);
+      timer_running = 1;
+    }
 
     /* get next sequence number, wrap back to 0 */
     A_nextseqnum = (A_nextseqnum + 1) % SEQSPACE;
@@ -115,7 +118,8 @@ void A_output(struct msg message)
 */
 void A_input(struct pkt packet)
 {
-  int index;
+  /* remember current base so we can detect later if window moved */
+  int old_windowfirst = windowfirst;
 
   /* if received ACK is not corrupted */
   if (!IsCorrupted(packet)) {
@@ -123,21 +127,19 @@ void A_input(struct pkt packet)
       printf("----A: uncorrupted ACK %d is received\n",packet.acknum);
     total_ACKs_received++;
 
-    /* map ACK to circular buffer slot */
-    index = packet.acknum % WINDOWSIZE;
-
-    if(!acked[index]) {
+    /* Only first arrival of this ACK matters; duplicate ACK ignored */
+    if(!acked[packet.acknum]) {
       /* Set pkt acked status to acked (1) */
-      acked[index] = 1;
+      acked[packet.acknum] = 1;   /* mark this seqnum as ACKed */
       if (TRACE > 0)
       printf("----A: pkt %d Status is set to ACKed\n",packet.acknum);
       new_ACKs++;
     }
 
     /* slide window once the oldest packet ACKed */
-    while (windowcount > 0 && acked[windowfirst]) {
+    while (windowcount > 0 && acked[buffer[windowfirst].seqnum]) {
       /* Reset ACKed status to 0 */
-      acked[windowfirst] = 0;
+      acked[buffer[windowfirst].seqnum] = 0;
       /* Slide window to right by 1 */
       windowfirst = (windowfirst + 1) % WINDOWSIZE;
       /* Total unacked pkt count reduce by 1 */
@@ -145,10 +147,18 @@ void A_input(struct pkt packet)
     }
 
     /* start timer again if there are still more unacked packets in window */
-    stoptimer(A);
-    if (windowcount > 0)
+    if (timer_running) {
+      stoptimer(A); /* Only stop timer if it's already running */
+      timer_running = 0;
+    }
+    /* Start a new timer only if:  
+      (a) there are still unACKed packets, AND  
+      (b) base actually moved (i.e., we now time a new oldest pkt) */
+    if (windowcount > 0 && windowfirst != old_windowfirst) {
       starttimer(A, RTT);
-  } else {
+      timer_running = 1;}
+  } else { 
+    /* Else if ACK is corrupted, ignore it and do ntohing to the winow or timer */
       if (TRACE > 0)
         printf ("----A: corrupted ACK is received, do nothing!\n");
     }
@@ -160,10 +170,17 @@ void A_timerinterrupt(void)
 
   if (TRACE > 0)
     printf("----A: time out,resend the oldest unacked packet!\n");
-
+  
+  /* Retransmit the packet at the head of the send window */
+  /* buffer[windowfirst] is the oldest unacknowledged frame */
+  if (TRACE > 0)
+    printf ("---A: resending packet %d\n", (buffer[windowfirst]).seqnum);
   tolayer3(A, buffer[windowfirst]);
   packets_resent++;
+
+  /* RTT is the fixed timeout value */
   starttimer(A,RTT);
+  timer_running = 1; /* record that the timer is active */
   
 }
 
@@ -180,6 +197,7 @@ void A_init(void)
 		     so initially this is set to -1
 		   */
   windowcount = 0;
+  timer_running = 0; /* timer_running is whether the timer is on/off, 0 means off, 1 means on */
   
 }
 
