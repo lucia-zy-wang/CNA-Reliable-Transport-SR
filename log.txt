@@ -1,0 +1,90 @@
+commit b639350efe42666de74b66139977d49c250cb275
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Mon May 5 13:38:44 2025 +0930
+
+    Full TRACE Test 4 failed for corrupted packet. Deleted TRACE message left from Go-Back-N behaviour.
+
+commit 1ff5106248f2872a851326a93f12804e1a3130e8
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sun May 4 23:45:33 2025 +0930
+
+    Added more terminal messages to better observe the behaviour and tested the code with more test cases, it seem to behave as expected.
+    
+    Used test cases:
+    Test No.        What For        Number of messages sent Loss Rate       Corruption Rate Loss/corrupt Direction  Message sent interval   TRACE
+    1       Basic Functionality     10      0.0     0.0     -       10      2
+    2       Basic + Full Window     20      0.0     0.0     -       0.5     2
+    3       Lost ACK / Timeouts     20      0.3     0.0     1 (ACK) 16      2
+    4       Handles Corrupted Packets       20      0.0     0.3     0 (Data packet) 10      2
+    5       Handles Corrupted ACK   20      0.0     0.3     1 (ACK) 16      2
+    6       Handles Lost Packets    50      0.2     0.0     0 (Data packet) 5       2
+    7       Handle Mixed Events     50      0.3     0.3     2 (Both directions)     5       2
+    8       Handle High Volume      100     0.2     0.2     2 (Both directions)     0.1     2
+
+commit b62ab4372e26a720f21897001b4abfb3f575b7a3
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sun May 4 21:40:50 2025 +0930
+
+    - Previous version did not handle duplicated ACK correctly (new_ACKs in some case is larger than total packets sent). It's apparently caused because my code only relied on acknum to determine whether it's suplicate, which is incorrect. So I changed the codes to wrap current packet into the sender window space, if the pkt is within the window space AND not acked, then it must be new ack, otherwise must be old ack and should ignore.  - Tested with param {30, 0.2, 0.1, 2, 40, 2} (20% lost, 10% corrupt, bidirectional, 40 unit internal, TRACE 2). Program behave as expected, duplicated ACKs were recognized. - Minor changes of comments, formats.
+
+commit 1e8bdd3d4019462a8dba2282cbf135c906ed43d5
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sun May 4 19:29:11 2025 +0930
+
+    - Selective Repeat Receiver shouldn't resend ACK after receive a corrupted packet, deleted corresponding codes in B_input(). Tested on local machine with param {30, 0, 0.3, 0, 16, 2} (A->B only 30% chance of packet corruption).
+    
+    Test Result:
+    after attempting to send 30 msgs from layer5
+    number of messages dropped due to full window:  0
+    number of valid (not corrupt or duplicate) acknowledgements received at A:  32
+    number of packet resends by A:  14 (due to packet corruption)
+    number of correct packets received at B:  32
+    number of messages delivered to application:  30
+
+commit 553db0069bfb20fa0d2527dfcbd455cdd65d1b32
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sun May 4 18:31:32 2025 +0930
+
+    - Include logic to handle window sliding when ALL packets in the window were acked (windowcount == 0) by reseting the start and the end of the window pointers. - Change customised prints TRACE levels to 1. (Ongoing change through next couple commits) - Selective Repeat Receiver shouldn't resend ACK after receive a corrupted packet, deleted corresponding codes in B_input().
+
+commit a06e7e48c3265b65b355ec8a76f71d1d862c8ade
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sun May 4 17:33:00 2025 +0930
+
+    - Fixed timers logic in Sender (A) to avoid the timer not stop in time and cause the sender window to stuck and not sliding properly. - Added codes to handle Rceiver (B) behaviour when received corrupted packets (Not tested yet.) - Other minor changes like formatting and syntax fix. - Tested with param {30,0.3,0,1,16,2}: program acted mostly as expected, but not handling the last packet correctly.
+
+commit 037a57bc5df0217155c4e9c4550804b1b1304a4f
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sun May 4 15:56:16 2025 +0930
+
+    - Added received buffer zone in B to store received packets. - Added array to track received status of packets. - Major code change in B_input() to buffer received packets and send buffered packet to Application after receiving it.
+
+commit 688a8c070aa4d31f2cfbef4184e128901f7c1b31
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sun May 4 11:53:33 2025 +0930
+
+    - Increased acked[] array length to SEQSPACE (12), fixed endless loop.  - Added variable and codes to track status of timer to avoid timer warning at the console “unable to cancel your timer. It wasn't running.”. So the timer will only stop after it's started. - Added code to track the base of sender window, only start a new timer when the base is moved. - Tested with param {12,0.3,0,1,16,2}: program can now handle more packets being sent and no timer warning shown.
+
+commit f8523647e5ce663a3bc15a54975b69042f0bb64d
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sun May 4 00:13:37 2025 +0930
+
+    Major code changes in A_input() fucntion to implement loss ACK/timeout logic. A_timerinterrupt() will resend oldest unacknowleged packet. Tested on param {6,0.3,0,1,5,2}: Lost ACK triggered timeout at Sender A, corresponding packet resent to Receiver, ACK resent to Sender. However, error occurred (endless loop) when sent 12 or more packets, or loss probability is high.
+
+commit a6670df10008598a689b151816d64fde4ac94b84
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sat May 3 20:25:57 2025 +0930
+
+    Added array to track individual pkt acknowledgement status. Tested full window behaviour with high sending rate (2), pkt were ignored when window is full.
+
+commit 0a260b84f676e3edd622b31eefebc44b3fcb8320
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sat May 3 19:14:42 2025 +0930
+
+    Tested SR basic functionality by setting "average time between messages from sender's layer5" = 20 (Low sending rate as it's more than RTT = 16)
+
+commit 5f5b592a2bfe7f33246846d169ecae8997c9b83b
+Author: lucia-zy-wang <161808164+lucia-zy-wang@users.noreply.github.com>
+Date:   Sat May 3 17:35:22 2025 +0930
+
+    Baseline .c and .h files derived from gbn.c gbn.h, changed sequence number size to 12
